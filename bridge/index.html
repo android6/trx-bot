@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Открыть в TronLink</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    max-width: 26rem;
+    margin: 3rem auto;
+    padding: 0 1rem;
+    text-align: center;
+    color: #222;
+    background: #fafafa;
+  }
+  h1 { font-size: 1.3rem; }
+  #info {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 1rem;
+    word-break: break-all;
+    font-size: 0.95rem;
+  }
+  #open, #ext {
+    display: none;
+    margin: 1.5rem auto 0;
+    padding: 0.9rem 2rem;
+    background: #135dcd;
+    color: #fff;
+    border: 0;
+    border-radius: 10px;
+    text-decoration: none;
+    font-size: 1.1rem;
+    cursor: pointer;
+  }
+  #ext { background: #1b7f4d; }
+  #ext-status { min-height: 1.2em; font-size: 0.95rem; }
+  .hint { color: #777; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<h1>Перевод через TronLink</h1>
+<p id="info">Разбираю ссылку…</p>
+<a id="open">Открыть TronLink (телефон)</a>
+<button id="ext">Подтвердить в TronLink</button>
+<p id="ext-status"></p>
+<p class="hint">Эта страница ничего не подписывает и никуда не отправляет данные:
+она только открывает приложение TronLink с предзаполненной формой.
+Подтверждение перевода — всегда в самом кошельке.</p>
+<script>
+// Смена только #фрагмента не перезагружает страницу — перечитываем сами,
+// иначе вторая ссылка бота в той же вкладке показала бы старые данные.
+window.addEventListener("hashchange", function () { location.reload(); });
+
+(function () {
+  var USDT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+  var info = document.getElementById("info");
+  var match = location.hash.match(/^#link=(.+)$/);
+  if (!match) {
+    info.textContent = "В ссылке нет данных перевода. Открой страницу по кнопке или ссылке из бота.";
+    return;
+  }
+  var link = decodeURIComponent(match[1]);
+  if (link.indexOf("tronlinkoutside://pull.activity?param=") !== 0) {
+    info.textContent = "Недопустимая ссылка — открываю только deeplink-и TronLink.";
+    return;
+  }
+  var param = null;
+  try {
+    param = JSON.parse(decodeURIComponent(link.split("?param=")[1]));
+    var token = param.tokenId === "0" ? "TRX"
+      : (param.contract === USDT ? "USDT" : "токен " + param.contract);
+    info.innerHTML = "Сумма: <b>" + param.amount + " " + token + "</b><br>Кому: " + param.to;
+  } catch (e) {
+    info.textContent = "Открываю TronLink…";
+  }
+  // Зелёная кнопка появляется везде, где TronLink внедряет window.tronLink:
+  // и в десктопном браузере с расширением, и в dApp-браузере приложения.
+  if (param) waitForExtension(param);
+
+  var button = document.getElementById("open");
+  var mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+  if (mobile) {
+    // Обычный мобильный браузер: переоткрываем эту же страницу внутри
+    // dApp-браузера TronLink (action=open, whitelist не нужен) — там появится
+    // зелёная кнопка подтверждения.
+    var openLink = "tronlinkoutside://pull.activity?param=" + encodeURIComponent(
+      JSON.stringify({url: location.href, action: "open",
+                      protocol: "tronlink", version: "1.0"}));
+    button.href = openLink;
+    button.style.display = "inline-block";
+    setTimeout(function () {
+      if (!window.tronLink) location.href = openLink; // автопопытка
+    }, 1500);
+  } else {
+    document.querySelector(".hint").textContent =
+      "Это компьютер: если установлено расширение TronLink, появится зелёная " +
+      "кнопка — подтверждение будет в окне расширения. Иначе открой страницу " +
+      "на телефоне или сканируй QR из сообщения бота.";
+  }
+
+  // --- TronLink (расширение или dApp-браузер) внедряет window.tronLink ---
+
+  function waitForExtension(p) {
+    var tries = 0;
+    var timer = setInterval(function () {
+      if (window.tronLink) {
+        clearInterval(timer);
+        document.getElementById("open").style.display = "none";
+        var ext = document.getElementById("ext");
+        ext.style.display = "inline-block";
+        ext.onclick = function () { sendViaExtension(p); };
+      } else if (++tries > 60) {  // ~15 секунд — TronLink здесь нет
+        clearInterval(timer);
+      }
+    }, 250);
+  }
+
+  function setStatus(text) {
+    document.getElementById("ext-status").textContent = text;
+  }
+
+  async function sendViaExtension(p) {
+    try {
+      setStatus("Запрашиваю доступ к кошельку…");
+      await window.tronLink.request({ method: "tron_requestAccounts" });
+      var tronWeb = window.tronLink.tronWeb || window.tronWeb;
+      if (!tronWeb || !tronWeb.defaultAddress || !tronWeb.defaultAddress.base58) {
+        setStatus("Расширение не дало доступ к кошельку.");
+        return;
+      }
+      var from = tronWeb.defaultAddress.base58;
+      if (p.from && from !== p.from) {
+        setStatus("В расширении выбран кошелёк " + from + ", а бот настроен на " +
+          p.from + ". Переключи аккаунт в TronLink и нажми ещё раз.");
+        return;
+      }
+      // Сумма в deeplink — в целых токенах (TRX или USDT, у обоих 6 знаков).
+      var units = Math.round(parseFloat(p.amount) * 1e6);
+      var tx;
+      if (p.tokenId === "0") {
+        tx = await tronWeb.transactionBuilder.sendTrx(p.to, units, from);
+      } else {
+        var built = await tronWeb.transactionBuilder.triggerSmartContract(
+          p.contract,
+          "transfer(address,uint256)",
+          { feeLimit: 100000000 },
+          [{ type: "address", value: p.to }, { type: "uint256", value: units }],
+          from
+        );
+        tx = built.transaction;
+      }
+      setStatus("Подтверди перевод в окне TronLink…");
+      var signed = await tronWeb.trx.sign(tx);
+      var result = await tronWeb.trx.sendRawTransaction(signed);
+      if (result && (result.result === true || result.txid)) {
+        setStatus("✅ Отправлено. TxID: " + (result.txid || (result.transaction && result.transaction.txID)));
+      } else {
+        setStatus("Сеть не приняла транзакцию: " + JSON.stringify(result));
+      }
+    } catch (e) {
+      setStatus("Отменено или ошибка: " + (e && e.message ? e.message : e) +
+        " — если кошелёк заблокирован, введи пароль в TronLink и нажми ещё раз.");
+    }
+  }
+})();
+</script>
+</body>
+</html>

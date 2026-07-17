@@ -1,0 +1,10 @@
+.env
+.env.deployed
+wallets.json
+users.json
+bot.log*
+__pycache__/
+*.pyc
+.venv/
+venv/
+.claude/
