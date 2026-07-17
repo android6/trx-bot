@@ -56,11 +56,11 @@ ENERGY_SERVICE_PAYMENT_ADDRESS = os.getenv("ENERGY_SERVICE_PAYMENT_ADDRESS", "")
 # когда их не хватает на оплату аренды). Пусто — подсказка обмена не показывается.
 EXCHANGE_PAYMENT_ADDRESS = os.getenv("EXCHANGE_PAYMENT_ADDRESS", "")
 # Предупреждать заранее, когда TRX на кошельке меньше этого запаса
-# (10 ≈ три полных перевода по двойному тарифу) — чтобы успеть обменять.
+# (30 ≈ девять переводов по двойному тарифу) — чтобы успеть обменять.
 try:
-    TRX_LOW_BALANCE_WARN = float(os.getenv("TRX_LOW_BALANCE_WARN", "") or 10.0)
+    TRX_LOW_BALANCE_WARN = float(os.getenv("TRX_LOW_BALANCE_WARN", "") or 30.0)
 except ValueError:
-    TRX_LOW_BALANCE_WARN = 10.0
+    TRX_LOW_BALANCE_WARN = 30.0
 # База https-мостика (страница bridge/index.html на любом хостинге).
 # Если задана — бот добавляет к сообщениям кнопку «Открыть в TronLink».
 BRIDGE_BASE_URL = os.getenv("BRIDGE_BASE_URL", "").strip().rstrip("/")
